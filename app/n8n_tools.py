@@ -319,5 +319,3 @@ class N8NToolRegistry:
         if error.status_code == 0:
             return "Unable to reach n8n API"
         return f"n8n error {error.status_code}: {base}"
-
-Wait we can't raise? need to return result. But current design not good.** We'll revise. Tool handlers should return MCPResult.** Need to adjust plan.** Replace raising with returning.** Need to restructure.**

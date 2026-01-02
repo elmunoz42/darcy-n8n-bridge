@@ -8,6 +8,11 @@ A FastAPI-based MCP bridge that lets DarcyIQ talk to an n8n instance using JSON-
 - Configurable workflow allowlist for extra guardrails.
 - Friendly error messages for common n8n problems (missing trigger nodes, auth failures, connectivity issues).
 - In-memory tracker that records executions launched through the bridge.
+- CORS middleware with configurable trusted domains.
+- Rate limiting (60 requests/minute per IP).
+- Health check endpoint for monitoring.
+- Comprehensive logging with structured messages.
+- MCP protocol 2024-11-05 compliance.
 
 ## Requirements
 - Python 3.11+
@@ -32,7 +37,7 @@ A FastAPI-based MCP bridge that lets DarcyIQ talk to an n8n instance using JSON-
    uvicorn app.main:app --host 0.0.0.0 --port 8080
    ```
 
-The bridge listens on `POST /`. Keep the session running to accept Darcy requests.
+The bridge listens on `POST /` for MCP requests, `GET /` for service info, and `GET /health` for health checks.
 
 ## Docker
 ```bash
@@ -75,8 +80,33 @@ DarcyIQ will send JSON-RPC messages to `/`. The bridge returns MCP responses wit
   ```
 - **Errors:** Validation errors surface as JSON-RPC errors. Tool-level issues return a success envelope containing a readable error message in `result.content[0].text`.
 
+## API Endpoints
+
+### GET / - Service Information
+Returns service status and available endpoints (no authentication required).
+
+### GET /health - Health Check
+Health check endpoint for monitoring and load balancers (no authentication required).
+
+```bash
+curl https://<bridge-url>/health
+```
+
+### POST / - MCP Protocol Handler
+Main endpoint for JSON-RPC 2.0 MCP requests (authentication required).
+
 ## curl Examples
 Replace `<bridge-url>` with your host and `<MCP_API_KEY>` with the configured key.
+
+Check service status:
+```bash
+curl https://<bridge-url>/
+```
+
+Health check:
+```bash
+curl https://<bridge-url>/health
+```
 
 List tools:
 ```bash
@@ -105,11 +135,44 @@ curl -X POST \
   -d '{"jsonrpc":"2.0","id":"3","method":"tools/call","params":{"name":"n8n_run_workflow","arguments":{"workflow_id":"12","payload":{"trigger":"cli"}}}}'
 ```
 
+## Security Features
+
+### CORS Protection
+The bridge restricts cross-origin requests to trusted domains configured in `app/main.py`:
+- `https://darcyiq.com`
+- `https://app.darcyiq.com`
+
+To add more trusted domains, edit the `allow_origins` list in `app/main.py`.
+
+### Rate Limiting
+Built-in rate limiting (60 requests/minute per IP) prevents abuse. Exceeding the limit returns HTTP 429.
+
+### Authentication
+All MCP protocol requests require an API key via `X-API-Key` or `api_key` header.
+
+## Monitoring
+
+### Health Check Endpoint
+Use `GET /health` for:
+- Load balancer health checks
+- Uptime monitoring
+- Systemd health verification
+
+### Logging
+The bridge logs all MCP requests with structured messages:
+```
+2026-01-02 12:00:00 - darcyiq_n8n_bridge - INFO - [MCP] Initialize request received
+2026-01-02 12:00:01 - darcyiq_n8n_bridge - INFO - [MCP] Tool call: n8n_list_workflows with arguments: {'limit': 10}
+2026-01-02 12:00:02 - darcyiq_n8n_bridge - INFO - [MCP] Tool n8n_list_workflows executed successfully
+```
+
 ## Troubleshooting
 - **401 Unauthorized:** Ensure the request includes `X-API-Key` or `api_key` exactly and that the value matches `MCP_API_KEY`.
+- **429 Too Many Requests:** Rate limit exceeded. Wait before sending more requests (60/minute limit).
 - **Workflow missing trigger:** n8n returns HTTP 400 when a workflow lacks a trigger node. The bridge relays this as `n8n rejected the run: the workflow is missing a trigger node.` Add a trigger node or run the workflow manually from within n8n.
 - **n8n connectivity errors:** Verify `N8N_BASE_URL`, network reachability, and that the n8n API key is valid. The bridge reports `Unable to reach n8n API` when the request fails at the network layer.
 - **Allowlist violations:** When `N8N_WORKFLOW_ALLOWLIST` is set, only workflows in that set can be listed or invoked. Update the allowlist or remove it if you need broader access.
+- **CORS errors:** If calling from a web browser, ensure the origin is in the `allow_origins` list in `app/main.py`.
 
 ## Testing
 ```bash
