@@ -18,8 +18,10 @@ class N8NClient:
         self._headers = {"X-N8N-API-KEY": api_key}
         self._timeout = httpx.Timeout(timeout_seconds, read=timeout_seconds * 3)
 
-    async def list_workflows(self, *, limit: int, offset: int, active: Optional[bool]) -> Dict[str, Any]:
-        params: Dict[str, Any] = {"limit": limit, "offset": offset}
+    async def list_workflows(self, *, limit: int, cursor: Optional[str], active: Optional[bool]) -> Dict[str, Any]:
+        params: Dict[str, Any] = {"limit": limit}
+        if cursor:
+            params["cursor"] = cursor
         if active is not None:
             params["active"] = str(active).lower()
         return await self._request("GET", "/api/v1/workflows", params=params)
@@ -38,10 +40,12 @@ class N8NClient:
         self,
         *,
         limit: int,
-        offset: int,
+        cursor: Optional[str],
         workflow_id: Optional[str],
     ) -> Dict[str, Any]:
-        params: Dict[str, Any] = {"limit": limit, "offset": offset}
+        params: Dict[str, Any] = {"limit": limit}
+        if cursor:
+            params["cursor"] = cursor
         if workflow_id:
             params["workflowId"] = workflow_id
         return await self._request("GET", "/api/v1/executions", params=params)

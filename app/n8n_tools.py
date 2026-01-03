@@ -12,7 +12,7 @@ from .utils import ToolExecutionError, as_mcp_text, format_json
 
 class ListWorkflowsArgs(BaseModel):
     limit: int = Field(50, ge=1, le=200)
-    offset: int = Field(0, ge=0)
+    cursor: Optional[str] = None
     active: Optional[bool] = None
 
     model_config = {"extra": "forbid"}
@@ -34,7 +34,7 @@ class RunWorkflowArgs(BaseModel):
 
 class ListExecutionsArgs(BaseModel):
     limit: int = Field(20, ge=1, le=200)
-    offset: int = Field(0, ge=0)
+    cursor: Optional[str] = None
     workflow_id: Optional[str] = None
 
     model_config = {"extra": "forbid"}
@@ -58,7 +58,7 @@ TOOL_DEFINITIONS: List[Dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50},
-                "offset": {"type": "integer", "minimum": 0, "default": 0},
+                "cursor": {"type": ["string", "null"], "default": None},
                 "active": {"type": ["boolean", "null"], "default": None},
             },
             "additionalProperties": False,
@@ -95,7 +95,7 @@ TOOL_DEFINITIONS: List[Dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 20},
-                "offset": {"type": "integer", "minimum": 0, "default": 0},
+                "cursor": {"type": ["string", "null"], "default": None},
                 "workflow_id": {"type": ["string", "null"], "default": None},
             },
             "additionalProperties": False,
@@ -158,7 +158,7 @@ class N8NToolRegistry:
 
     async def _handle_list_workflows(self, arguments: Dict[str, Any]) -> MCPResult:
         args = ListWorkflowsArgs(**arguments)
-        payload = await self._client.list_workflows(limit=args.limit, offset=args.offset, active=args.active)
+        payload = await self._client.list_workflows(limit=args.limit, cursor=args.cursor, active=args.active)
         filtered = self._filter_workflows(payload)
         return as_mcp_text(format_json(filtered))
 
@@ -187,7 +187,7 @@ class N8NToolRegistry:
             raise ToolExecutionError("Workflow is not permitted by the allowlist")
         payload = await self._client.list_executions(
             limit=args.limit,
-            offset=args.offset,
+            cursor=args.cursor,
             workflow_id=args.workflow_id,
         )
         filtered = self._filter_executions(payload)
