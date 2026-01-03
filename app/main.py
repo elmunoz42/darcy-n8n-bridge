@@ -6,11 +6,13 @@ from typing import Any, Dict
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import ValidationError
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
+import json as json_lib
+import asyncio
 
 from .auth import require_api_key
 from .mcp_models import JSONRPCRequest, JSONRPCResponse, ToolCallParams
@@ -70,6 +72,25 @@ def _jsonrpc_response(response: JSONRPCResponse) -> JSONResponse:
     return JSONResponse(content=response.model_dump(exclude_none=True))
 
 
+async def _sse_generator(data: dict):
+    """Generate SSE formatted response."""
+    json_data = json_lib.dumps(data)
+    yield f"data: {json_data}\n\n"
+
+
+def _sse_response(response: JSONRPCResponse) -> StreamingResponse:
+    """Create SSE streaming response."""
+    return StreamingResponse(
+        _sse_generator(response.model_dump(exclude_none=True)),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
+
+
 @app.get("/")
 async def root_get():
     """Root endpoint info - GET requests."""
@@ -106,23 +127,24 @@ async def health_check():
 
 @app.post("/")
 @limiter.limit("60/minute")
-async def handle_mcp(request: Request, _: str = Depends(require_api_key)) -> JSONResponse:
+async def handle_mcp(request: Request, _: str = Depends(require_api_key)) -> StreamingResponse:
     try:
         raw_payload: Dict[str, Any] = await request.json()
+        logger.info(f"[MCP] Received request: {raw_payload}")
     except ValueError:
         response = JSONRPCResponse.failure(response_id=None, code=-32700, message="Parse error: invalid JSON")
-        return _jsonrpc_response(response)
+        return _sse_response(response)
 
     if not isinstance(raw_payload, dict):
         response = JSONRPCResponse.failure(response_id=None, code=-32600, message="Invalid request payload")
-        return _jsonrpc_response(response)
+        return _sse_response(response)
 
     try:
         rpc_request = JSONRPCRequest(**raw_payload)
     except ValidationError as exc:
         logger.debug("JSON-RPC validation failed: %s", exc)
         response = JSONRPCResponse.failure(response_id=raw_payload.get("id"), code=-32600, message="Invalid JSON-RPC request")
-        return _jsonrpc_response(response)
+        return _sse_response(response)
 
     if rpc_request.method == "initialize":
         logger.info("[MCP] Initialize request received")
@@ -138,11 +160,12 @@ async def handle_mcp(request: Request, _: str = Depends(require_api_key)) -> JSO
                 }
             )
         )
-        return _jsonrpc_response(JSONRPCResponse.success(response_id=rpc_request.id, result=result.model_dump()))
+        return _sse_response(JSONRPCResponse.success(response_id=rpc_request.id, result=result.model_dump()))
 
     if rpc_request.method == "tools/list":
         logger.info("[MCP] Tools list request received")
         tools = registry.list_tools()
+        logger.info(f"[MCP] Found {len(tools)} tools")
         # Transform to MCP tools list format matching WordPress MCP server
         tools_list = [
             {
@@ -153,7 +176,10 @@ async def handle_mcp(request: Request, _: str = Depends(require_api_key)) -> JSO
             for tool in tools
         ]
         result = {"tools": tools_list}
-        return _jsonrpc_response(JSONRPCResponse.success(response_id=rpc_request.id, result=result))
+        logger.info(f"[MCP] Returning tools/list response with {len(tools_list)} tools")
+        response = JSONRPCResponse.success(response_id=rpc_request.id, result=result)
+        logger.info(f"[MCP] Response: {response.model_dump()}")
+        return _sse_response(response)
 
     if rpc_request.method == "tools/call":
         try:
@@ -161,7 +187,7 @@ async def handle_mcp(request: Request, _: str = Depends(require_api_key)) -> JSO
         except ValidationError as exc:
             logger.debug("tools/call params validation failed: %s", exc)
             response = JSONRPCResponse.failure(response_id=rpc_request.id, code=-32602, message="Invalid tools/call params")
-            return _jsonrpc_response(response)
+            return _sse_response(response)
 
         logger.info(f"[MCP] Tool call: {params.name} with arguments: {params.arguments}")
 
@@ -171,18 +197,18 @@ async def handle_mcp(request: Request, _: str = Depends(require_api_key)) -> JSO
             logger.warning(f"[MCP] Tool execution failed for {params.name}: {exc}")
             error_message = f"Tool execution failed: {exc}"
             result = as_mcp_text(error_message)
-            return _jsonrpc_response(JSONRPCResponse.success(response_id=rpc_request.id, result=result.model_dump()))
+            return _sse_response(JSONRPCResponse.success(response_id=rpc_request.id, result=result.model_dump()))
         except Exception as exc:  # noqa: BLE001
             logger.exception("Unexpected error while running tool %s", params.name)
             result = as_mcp_text("Unexpected server error while running tool")
-            return _jsonrpc_response(JSONRPCResponse.success(response_id=rpc_request.id, result=result.model_dump()))
+            return _sse_response(JSONRPCResponse.success(response_id=rpc_request.id, result=result.model_dump()))
 
         logger.info(f"[MCP] Tool {params.name} executed successfully")
-        return _jsonrpc_response(JSONRPCResponse.success(response_id=rpc_request.id, result=result.model_dump()))
+        return _sse_response(JSONRPCResponse.success(response_id=rpc_request.id, result=result.model_dump()))
 
     response = JSONRPCResponse.failure(
         response_id=rpc_request.id,
         code=-32601,
         message=f"Method not found: {rpc_request.method}",
     )
-    return _jsonrpc_response(response)
+    return _sse_response(response)
