@@ -148,19 +148,15 @@ async def handle_mcp(request: Request, _: str = Depends(require_api_key)):
 
     if rpc_request.method == "initialize":
         logger.info("[MCP] Initialize request received")
-        result = as_mcp_text(
-            format_json(
-                {
-                    "protocolVersion": "2024-11-05",
-                    "capabilities": {"tools": {}},
-                    "serverInfo": {
-                        "name": "n8nMCP",
-                        "version": "1.0.0"
-                    }
-                }
-            )
-        )
-        return _sse_response(JSONRPCResponse.success(response_id=rpc_request.id, result=result.model_dump()))
+        result = {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {"tools": {}},
+            "serverInfo": {
+                "name": "n8nMCP",
+                "version": "1.0.0"
+            }
+        }
+        return _sse_response(JSONRPCResponse.success(response_id=rpc_request.id, result=result))
 
     if rpc_request.method == "tools/list":
         logger.info("[MCP] Tools list request received")
