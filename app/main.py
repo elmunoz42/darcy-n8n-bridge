@@ -42,7 +42,7 @@ registry = N8NToolRegistry(
 
 # Initialize FastAPI app
 app = FastAPI(
-    title="DarcyIQ n8n MCP Bridge",
+    title="n8nMCP",
     description="Model Context Protocol server for n8n workflow automation",
     version="1.0.0"
 )
@@ -74,7 +74,7 @@ def _jsonrpc_response(response: JSONRPCResponse) -> JSONResponse:
 async def root_get():
     """Root endpoint info - GET requests."""
     return {
-        "service": "DarcyIQ n8n MCP Bridge",
+        "service": "n8nMCP",
         "status": "running",
         "version": "1.0.0",
         "timestamp": datetime.now().isoformat(),
@@ -100,7 +100,7 @@ async def health_check():
     return {
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
-        "service": "DarcyIQ n8n MCP Bridge"
+        "service": "n8nMCP"
     }
 
 
@@ -132,7 +132,7 @@ async def handle_mcp(request: Request, _: str = Depends(require_api_key)) -> JSO
                     "protocolVersion": "2024-11-05",
                     "capabilities": {"tools": {}},
                     "serverInfo": {
-                        "name": "DarcyIQ n8n MCP Bridge",
+                        "name": "n8nMCP",
                         "version": "1.0.0"
                     }
                 }
@@ -143,8 +143,17 @@ async def handle_mcp(request: Request, _: str = Depends(require_api_key)) -> JSO
     if rpc_request.method == "tools/list":
         logger.info("[MCP] Tools list request received")
         tools = registry.list_tools()
-        result = as_mcp_text(format_json(tools))
-        return _jsonrpc_response(JSONRPCResponse.success(response_id=rpc_request.id, result=result.model_dump()))
+        # Transform to MCP tools list format matching WordPress MCP server
+        tools_list = [
+            {
+                "name": tool["name"],
+                "description": tool["description"],
+                "inputSchema": tool["input_schema"]
+            }
+            for tool in tools
+        ]
+        result = {"tools": tools_list}
+        return _jsonrpc_response(JSONRPCResponse.success(response_id=rpc_request.id, result=result))
 
     if rpc_request.method == "tools/call":
         try:
