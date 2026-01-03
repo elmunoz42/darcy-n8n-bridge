@@ -127,7 +127,7 @@ async def health_check():
 
 @app.post("/")
 @limiter.limit("60/minute")
-async def handle_mcp(request: Request, _: str = Depends(require_api_key)) -> StreamingResponse:
+async def handle_mcp(request: Request, _: str = Depends(require_api_key)):
     try:
         raw_payload: Dict[str, Any] = await request.json()
         logger.info(f"[MCP] Received request: {raw_payload}")
