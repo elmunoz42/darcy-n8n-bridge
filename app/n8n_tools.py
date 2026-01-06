@@ -50,6 +50,12 @@ class EmptyArgs(BaseModel):
     model_config = {"extra": "forbid"}
 
 
+class ScheduleCheckArgs(BaseModel):
+    prompt: str = Field(..., description="The query or prompt to send to the schedule check agent")
+
+    model_config = {"extra": "forbid"}
+
+
 TOOL_DEFINITIONS: List[Dict[str, Any]] = [
     {
         "name": "n8n_list_workflows",
@@ -120,6 +126,18 @@ TOOL_DEFINITIONS: List[Dict[str, Any]] = [
             "additionalProperties": False,
         },
     },
+    {
+        "name": "n8n_schedule_check",
+        "description": "Query the Ahh Moments content schedule using natural language. Ask about upcoming content, specific dates, or content types.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "prompt": {"type": "string", "description": "Your question about the content schedule (e.g., 'What content is scheduled for February?')"}
+            },
+            "required": ["prompt"],
+            "additionalProperties": False,
+        },
+    },
 ]
 
 
@@ -141,6 +159,7 @@ class N8NToolRegistry:
             "n8n_list_executions": self._handle_list_executions,
             "n8n_get_execution": self._handle_get_execution,
             "darcy_tracking_list": self._handle_tracking_list,
+            "n8n_schedule_check": self._handle_schedule_check,
         }
 
     def list_tools(self) -> List[Dict[str, Any]]:
@@ -214,6 +233,26 @@ class N8NToolRegistry:
             for entry in entries
         ]
         return as_mcp_text(format_json(formatted))
+
+    async def _handle_schedule_check(self, arguments: Dict[str, Any]) -> MCPResult:
+        import httpx
+        
+        args = ScheduleCheckArgs(**arguments)
+        webhook_url = "https://n8n-2025-12-27.space-exploration.news/webhook-test/schedule-check"
+        
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    webhook_url,
+                    json={"prompt": args.prompt}
+                )
+                response.raise_for_status()
+                result = response.json()
+                return as_mcp_text(format_json(result))
+        except httpx.HTTPError as exc:
+            raise ToolExecutionError(f"Webhook request failed: {str(exc)}") from exc
+        except Exception as exc:
+            raise ToolExecutionError(f"Unexpected error calling webhook: {str(exc)}") from exc
 
     def _ensure_workflow_allowed(self, workflow_id: str) -> None:
         if self._allowlist and workflow_id not in self._allowlist:
