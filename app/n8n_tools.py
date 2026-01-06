@@ -238,7 +238,7 @@ class N8NToolRegistry:
         import httpx
         
         args = ScheduleCheckArgs(**arguments)
-        webhook_url = "https://n8n-2025-12-27.space-exploration.news/webhook-test/schedule-check"
+        webhook_url = "https://n8n-2025-12-27.space-exploration.news/webhook/schedule-check"
         
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
